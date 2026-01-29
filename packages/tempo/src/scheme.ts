@@ -22,12 +22,15 @@ import {
   DEFAULT_MAX_FEE_PER_GAS_CAP,
   DEFAULT_MAX_PRIORITY_FEE_PER_GAS_CAP,
 } from "./types";
+import { logger } from "./logger";
 
-function verifyFail(reason: string): VerifyResponse {
+function verifyFail(reason: string, context?: Record<string, unknown>): VerifyResponse {
+  logger.warn({ reason, ...context }, "Verification failed");
   return { isValid: false, invalidReason: reason };
 }
 
-function settleFail(reason: string, network: Network): SettleResponse {
+function settleFail(reason: string, network: Network, context?: Record<string, unknown>): SettleResponse {
+  logger.error({ reason, network, ...context }, "Settlement failed");
   return { success: false, errorReason: reason, transaction: "", network };
 }
 
@@ -188,10 +191,14 @@ export class ExactTempoScheme implements SchemeNetworkFacilitator, SchemeNetwork
   }
 
   async settle(payload: PaymentPayload, requirements: PaymentRequirements): Promise<SettleResponse> {
+    logger.info({ network: this.networkId, amount: requirements.amount }, "Starting settlement");
+
     // Re-verify before settling
     const verifyResult = await this.verify(payload, requirements);
     if (!verifyResult.isValid) {
-      return settleFail(verifyResult.invalidReason || "Verification failed", this.networkId);
+      return settleFail(verifyResult.invalidReason || "Verification failed", this.networkId, {
+        step: "verification",
+      });
     }
 
     const txPayload = payload.payload as {
@@ -206,11 +213,17 @@ export class ExactTempoScheme implements SchemeNetworkFacilitator, SchemeNetwork
       this.rpcUrl,
       this.privateKey,
       this.chainId,
+      verifyResult.payer! as `0x${string}`,
     );
 
     if ("error" in result) {
-      return settleFail(result.error, this.networkId);
+      return settleFail(result.error, this.networkId, {
+        step: "submission",
+        payer: verifyResult.payer,
+      });
     }
+
+    logger.info({ hash: result.hash, network: this.networkId }, "Transaction submitted, waiting for confirmation");
 
     // Wait for confirmation
     try {
@@ -219,6 +232,10 @@ export class ExactTempoScheme implements SchemeNetworkFacilitator, SchemeNetwork
         confirmations: 1,
       });
       if (receipt.status === "reverted") {
+        logger.error(
+          { hash: result.hash, network: this.networkId },
+          "Transaction reverted on-chain"
+        );
         return {
           success: false,
           errorReason: `Transaction ${result.hash} reverted`,
@@ -226,11 +243,18 @@ export class ExactTempoScheme implements SchemeNetworkFacilitator, SchemeNetwork
           network: this.networkId,
         };
       }
-    } catch {
-      // Timeout waiting - tx might still succeed
+    } catch (error) {
+      logger.warn(
+        { hash: result.hash, error: error instanceof Error ? error.message : "Unknown error" },
+        "Timeout waiting for confirmation - transaction may still succeed"
+      );
     }
 
     const payer = verifyResult.payer || txPayload.transfer?.from || "";
+    logger.info(
+      { hash: result.hash, network: this.networkId, payer },
+      "Settlement completed successfully"
+    );
     return {
       success: true,
       transaction: result.hash,

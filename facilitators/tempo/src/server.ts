@@ -1,5 +1,7 @@
-import { Elysia, t } from "elysia";
-import { cors } from "@elysiajs/cors";
+import { Hono } from "hono";
+import { cors } from "hono/cors";
+import { zValidator } from "@hono/zod-validator";
+import { z } from "zod";
 import { x402Facilitator } from "@x402/core/facilitator";
 import { ExactTempoScheme } from "@x402/tempo";
 import type { Network, PaymentPayload, PaymentRequirements } from "@x402/core/types";
@@ -20,137 +22,127 @@ function createFacilitator() {
   return { facilitator, scheme };
 }
 
+const paymentPayloadSchema = z.object({
+  x402Version: z.number(),
+  resource: z.object({
+    url: z.string(),
+    description: z.string(),
+    mimeType: z.string(),
+  }),
+  accepted: z.object({
+    scheme: z.string(),
+    network: z.string(),
+    asset: z.string(),
+    amount: z.string(),
+    payTo: z.string(),
+    maxTimeoutSeconds: z.number(),
+    extra: z.record(z.string(), z.unknown()),
+  }),
+  payload: z.record(z.string(), z.unknown()),
+});
+
+const paymentRequirementsSchema = z.object({
+  scheme: z.string(),
+  network: z.string(),
+  asset: z.string(),
+  amount: z.string(),
+  payTo: z.string(),
+  maxTimeoutSeconds: z.number(),
+  extra: z.record(z.string(), z.unknown()),
+});
+
+const verifySettleBodySchema = z.object({
+  paymentPayload: paymentPayloadSchema,
+  paymentRequirements: paymentRequirementsSchema,
+});
+
 export function createServer() {
   const { facilitator } = createFacilitator();
 
-  const paymentPayloadSchema = t.Object({
-    x402Version: t.Number(),
-    resource: t.Object({
-      url: t.String(),
-      description: t.String(),
-      mimeType: t.String(),
+  const app = new Hono();
+
+  // CORS middleware
+  const origins =
+    config.corsAllowedOrigins === "*"
+      ? "*"
+      : config.corsAllowedOrigins.split(",").map((o) => o.trim());
+
+  app.use(
+    "*",
+    cors({
+      origin: origins,
+      allowMethods: ["GET", "POST", "OPTIONS"],
+      credentials: true,
     }),
-    accepted: t.Object({
-      scheme: t.String(),
-      network: t.String(),
-      asset: t.String(),
-      amount: t.String(),
-      payTo: t.String(),
-      maxTimeoutSeconds: t.Number(),
-      extra: t.Record(t.String(), t.Unknown()),
-    }),
-    payload: t.Record(t.String(), t.Unknown()),
+  );
+
+  // Request logging middleware
+  app.use("*", async (c, next) => {
+    logger.info({ method: c.req.method, path: c.req.path }, "Request received");
+    await next();
+    logger.info({ method: c.req.method, path: c.req.path, status: c.res.status }, "Response sent");
   });
 
-  const paymentRequirementsSchema = t.Object({
-    scheme: t.String(),
-    network: t.String(),
-    asset: t.String(),
-    amount: t.String(),
-    payTo: t.String(),
-    maxTimeoutSeconds: t.Number(),
-    extra: t.Record(t.String(), t.Unknown()),
-  });
-
-  const app = new Elysia()
-    .use(
-      cors({
-        origin:
-          config.corsAllowedOrigins === "*"
-            ? true
-            : config.corsAllowedOrigins.split(",").map((o) => o.trim()),
-        methods: ["GET", "POST", "OPTIONS"],
-        credentials: true,
-      }),
-    )
-    .onRequest(({ request }) => {
-      const url = new URL(request.url);
-      logger.debug({ method: request.method, path: url.pathname }, "Request received");
-    })
-    .onAfterResponse(({ request, set }) => {
-      const url = new URL(request.url);
-      logger.debug({ method: request.method, path: url.pathname, status: set.status }, "Response sent");
-    })
-
-    // Health check
-    .get("/health", () => ({
+  // Health check
+  app.get("/health", (c) => {
+    return c.json({
       status: "ok",
       timestamp: new Date().toISOString(),
       version: "0.1.0",
       network: config.tempoNetworkId,
-    }))
-
-    // GET /supported
-    .get("/supported", () => {
-      return facilitator.getSupported();
-    })
-
-    // POST /verify
-    .post(
-      "/verify",
-      async ({ body }) => {
-        const result = await facilitator.verify(
-          body.paymentPayload as unknown as PaymentPayload,
-          body.paymentRequirements as unknown as PaymentRequirements,
-        );
-        return result;
-      },
-      {
-        body: t.Object({
-          paymentPayload: paymentPayloadSchema,
-          paymentRequirements: paymentRequirementsSchema,
-        }),
-      },
-    )
-
-    // POST /settle
-    .post(
-      "/settle",
-      async ({ body }) => {
-        const result = await facilitator.settle(
-          body.paymentPayload as unknown as PaymentPayload,
-          body.paymentRequirements as unknown as PaymentRequirements,
-        );
-        return result;
-      },
-      {
-        body: t.Object({
-          paymentPayload: paymentPayloadSchema,
-          paymentRequirements: paymentRequirementsSchema,
-        }),
-      },
-    )
-
-    // Error handling
-    .onError(({ code, error, set, request }) => {
-      const url = new URL(request.url);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-
-      switch (code) {
-        case "VALIDATION":
-          logger.warn({ code, path: url.pathname, message: errorMessage }, "Validation error");
-          set.status = 400;
-          return { error: "Validation Error", message: errorMessage, statusCode: 400 };
-
-        case "NOT_FOUND":
-          set.status = 404;
-          return { error: "Not Found", message: "Endpoint not found", statusCode: 404 };
-
-        case "PARSE":
-          logger.warn({ code, path: url.pathname, message: errorMessage }, "Parse error");
-          set.status = 400;
-          return { error: "Parse Error", message: "Invalid request body", statusCode: 400 };
-
-        default:
-          logger.error({ code, path: url.pathname, message: errorMessage }, "Unhandled error");
-          set.status = 500;
-          return {
-            error: "Internal Server Error",
-            message: config.environment === "development" ? errorMessage : "An unexpected error occurred",
-            statusCode: 500,
-          };
-      }
     });
+  });
+
+  // GET /supported
+  app.get("/supported", (c) => {
+    return c.json(facilitator.getSupported());
+  });
+
+  // POST /verify
+  app.post("/verify", zValidator("json", verifySettleBodySchema), async (c) => {
+    const body = c.req.valid("json");
+    const result = await facilitator.verify(
+      body.paymentPayload as unknown as PaymentPayload,
+      body.paymentRequirements as unknown as PaymentRequirements,
+    );
+    return c.json(result);
+  });
+
+  // POST /settle
+  app.post("/settle", zValidator("json", verifySettleBodySchema), async (c) => {
+    const body = c.req.valid("json");
+    const result = await facilitator.settle(
+      body.paymentPayload as unknown as PaymentPayload,
+      body.paymentRequirements as unknown as PaymentRequirements,
+    );
+    return c.json(result);
+  });
+
+  // Error handling
+  app.onError((err, c) => {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+
+    // Check if it's a Zod validation error
+    if (err.name === "ZodError" || err.message.includes("Validation")) {
+      logger.warn({ path: c.req.path, message: errorMessage }, "Validation error");
+      return c.json({ error: "Validation Error", message: errorMessage, statusCode: 400 }, 400);
+    }
+
+    logger.error({ path: c.req.path, message: errorMessage }, "Unhandled error");
+    return c.json(
+      {
+        error: "Internal Server Error",
+        message: config.environment === "development" ? errorMessage : "An unexpected error occurred",
+        statusCode: 500,
+      },
+      500,
+    );
+  });
+
+  // 404 handler
+  app.notFound((c) => {
+    return c.json({ error: "Not Found", message: "Endpoint not found", statusCode: 404 }, 404);
+  });
 
   return app;
 }
@@ -158,14 +150,18 @@ export function createServer() {
 export function startServer() {
   const app = createServer();
 
-  app.listen(config.port, () => {
-    logger.info(
-      { host: config.host, port: config.port, environment: config.environment, network: config.tempoNetworkId },
-      "x402 Tempo Facilitator started",
-    );
+  const server = Bun.serve({
+    port: config.port,
+    hostname: config.host,
+    fetch: app.fetch,
   });
 
-  return app;
+  logger.info(
+    { host: config.host, port: config.port, environment: config.environment, network: config.tempoNetworkId },
+    "x402 Tempo Facilitator started",
+  );
+
+  return { app, server };
 }
 
 export type App = ReturnType<typeof createServer>;

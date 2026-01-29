@@ -1,10 +1,11 @@
 import { startServer } from "./src/server";
 import { logger } from "./src/logger";
 
-const app = startServer();
+const { server } = startServer();
 
 const shutdown = async () => {
   logger.info("Shutting down gracefully...");
+  server.stop();
   process.exit(0);
 };
 
