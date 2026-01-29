@@ -1,5 +1,5 @@
 {
-  "name": "@x402/workspace",
+  "name": "x402-tempo",
   "private": true,
   "workspaces": ["packages/*", "facilitators/*"]
 }
