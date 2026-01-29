@@ -55,7 +55,7 @@ Unlike EVM chains where `transferWithAuthorization` (EIP-3009) or `Permit2` are 
 
 3. **Client** constructs a Tempo transaction (type `0x76`) with:
    - A single entry in the `calls` array: a call to the required TIP-20 token contract with `transfer(address,uint256)` encoded as the call data.
-   - `chainId` set to `42429`.
+   - `chainId` set to `42431`.
    - `validBefore` and `validAfter` set to define the payment's validity window.
    - The `fee_token` field encoded as empty (`0x80`), delegating fee token selection to the fee payer.
    - The `fee_payer_signature` field set to the placeholder value `0x00`.
@@ -89,7 +89,7 @@ In addition to the standard x402 `PaymentRequirements` fields, the `exact` schem
 ```json
 {
   "scheme": "exact",
-  "network": "tempo:42429",
+  "network": "tempo:42431",
   "amount": "1000000",
   "asset": "0x20c0000000000000000000000000000000000000",
   "payTo": "0x209693Bc6afc0C5328bA36FaF03C514EF312287C",
@@ -107,7 +107,7 @@ In addition to the standard x402 `PaymentRequirements` fields, the `exact` schem
 | Field | Description |
 |:---|:---|
 | `scheme` | MUST be `"exact"`. |
-| `network` | Network identifier. MUST be `"tempo:<chainId>"` (e.g., `"tempo:42429"`). |
+| `network` | Network identifier. MUST be `"tempo:<chainId>"` (e.g., `"tempo:42431"`). |
 | `amount` | The required payment amount in the token's smallest unit (e.g., `"1000000"` = 1.00 pathUSD with 6 decimals). |
 | `asset` | The TIP-20 token contract address. |
 | `payTo` | The recipient address (merchant/resource server). |
@@ -157,7 +157,7 @@ Full `PaymentPayload` object:
   },
   "accepted": {
     "scheme": "exact",
-    "network": "tempo:42429",
+    "network": "tempo:42431",
     "amount": "1000000",
     "asset": "0x20c0000000000000000000000000000000000000",
     "payTo": "0x209693Bc6afc0C5328bA36FaF03C514EF312287C",
@@ -192,7 +192,7 @@ The `SettlementResponse` for the `exact` scheme on Tempo:
 {
   "success": true,
   "transaction": "0xabc123...",
-  "network": "tempo:42429",
+  "network": "tempo:42431",
   "payer": "0x857b06519E91e3A54538791bDbb0E22373e36b66"
 }
 ```
@@ -201,7 +201,7 @@ The `SettlementResponse` for the `exact` scheme on Tempo:
 |:---|:---|
 | `success` | `true` if the transaction was confirmed on-chain. |
 | `transaction` | The transaction hash (hex-encoded, `0x`-prefixed). |
-| `network` | Network identifier (`"tempo:42429"`). |
+| `network` | Network identifier (`"tempo:42431"`). |
 | `payer` | The sender's address (the user who paid, not the fee payer/facilitator). |
 
 ---
@@ -214,7 +214,7 @@ A facilitator verifying an `exact`-scheme Tempo payment MUST enforce **all** of 
 
 - The `serializedTransaction` MUST start with `0x76` (the Tempo transaction type byte, per EIP-2718).
 - The transaction MUST deserialize successfully using the Tempo transaction format.
-- The transaction's `chainId` MUST equal `42429`.
+- The transaction's `chainId` MUST equal `42431`.
 
 ### 2. Sponsored Intent
 
@@ -275,7 +275,7 @@ A facilitator verifying an `exact`-scheme Tempo payment MUST enforce **all** of 
 
 ### 10. Network Validation
 
-- `PaymentRequirements.network` MUST equal `"tempo:42429"`.
+- `PaymentRequirements.network` MUST equal `"tempo:42431"`.
 
 ---
 
@@ -300,7 +300,7 @@ Upon successful verification, the Facilitator settles the payment by executing t
 8. **Wait** for 1 block confirmation.
 
 9. **Return** `SettlementResponse`:
-   - On success: `{ success: true, transaction: <hash>, network: "tempo:42429", payer: <sender_address> }`
+   - On success: `{ success: true, transaction: <hash>, network: "tempo:42431", payer: <sender_address> }`
    - On revert: Return failure with error code `TRANSACTION_REVERTED`.
    - On timeout: The facilitator SHOULD still return success if the transaction was submitted, as it may confirm in a subsequent block.
 
@@ -405,8 +405,8 @@ The resulting signature is placed in the `fee_payer_signature` field of the tran
 
 | Property | Value |
 |:---|:---|
-| Chain ID | `42429` |
-| Network ID | `tempo:42429` |
+| Chain ID | `42431` |
+| Network ID | `tempo:42431` |
 | Transaction Type | `0x76` (TempoTransaction, EIP-2718 envelope) |
 | RPC Interface | Standard JSON-RPC (`eth_sendRawTransaction`, `eth_call`, etc.) |
 | Native Token | None (fees paid in TIP-20 stablecoins) |
