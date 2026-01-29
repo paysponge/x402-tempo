@@ -6,9 +6,9 @@ const configSchema = z.object({
   host: z.string().default("0.0.0.0"),
   environment: z.enum(["development", "staging", "production"]).default("development"),
 
-  tempoRpcUrl: z.string().url().default("https://rpc.testnet.tempo.xyz"),
-  tempoChainId: z.coerce.number().default(42429),
-  tempoNetworkId: z.string().default("tempo:42429"),
+  tempoRpcUrl: z.string().url().default("https://rpc.moderato.tempo.xyz"),
+  tempoChainId: z.coerce.number().default(42431),
+  tempoNetworkId: z.string().default("tempo:42431"),
 
   facilitatorPrivateKey: z
     .string()

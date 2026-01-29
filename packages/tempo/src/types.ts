@@ -4,8 +4,8 @@ export type Address = `0x${string}`;
 export type Hash = `0x${string}`;
 export type Hex = `0x${string}`;
 
-export const TEMPO_TESTNET_CHAIN_ID = 42429;
-export const TEMPO_TESTNET_NETWORK: Network = "tempo:42429";
+export const TEMPO_TESTNET_CHAIN_ID = 42431;
+export const TEMPO_TESTNET_NETWORK: Network = "tempo:42431";
 export const TEMPO_TX_TYPE_BYTE = "0x76";
 export const TRANSFER_SELECTOR = "0xa9059cbb";
 export const FEE_PAYER_DOMAIN_BYTE = "0x78";
