@@ -1,14 +1,9 @@
-import { createClient, createPublicClient, defineChain, http, type Hash } from "viem";
-import { tempoModerato } from "viem/chains";
+import { createClient, http, type Hash } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { Transaction } from "viem/tempo";
-import { Secp256k1 } from "ox";
-import { TxEnvelopeTempo } from "ox/tempo";
+import { signTransaction } from "viem/actions";
 import type { Address, Hex, ParsedTempoTransaction } from "./types";
 import { TRANSFER_SELECTOR, TEMPO_TX_TYPE_BYTE } from "./types";
-import { logger } from "./logger";
-
-// pathUSD token address on Tempo
-const PATH_USD: Address = "0x20c0000000000000000000000000000000000000";
 
 export function parseTempoTransaction(serializedTx: string): ParsedTempoTransaction {
   try {
@@ -74,14 +69,9 @@ export function parseTempoTransaction(serializedTx: string): ParsedTempoTransact
       hasSenderSignature,
     };
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : "Unknown error";
-    logger.error(
-      { error: errorMsg, txPrefix: serializedTx.slice(0, 66) },
-      "Failed to parse Tempo transaction",
-    );
     return {
       valid: false,
-      error: `Failed to parse transaction: ${errorMsg}`,
+      error: `Failed to parse transaction: ${error instanceof Error ? error.message : "Unknown error"}`,
     };
   }
 }
@@ -91,7 +81,6 @@ export async function submitSponsoredTransaction(
   rpcUrl: string,
   privateKey: Hex,
   chainId: number,
-  senderAddress: Address,
 ): Promise<{ hash: Hash } | { error: string }> {
   try {
     const parsed = parseTempoTransaction(serializedTx);
@@ -107,13 +96,7 @@ export async function submitSponsoredTransaction(
       return { error: "Transaction must have sender signature" };
     }
 
-    const chain = defineChain({ ...tempoModerato, id: chainId });
     const client = createClient({
-      chain,
-      transport: http(rpcUrl),
-    });
-    const publicClient = createPublicClient({
-      chain,
       transport: http(rpcUrl),
     });
 
@@ -123,90 +106,13 @@ export async function submitSponsoredTransaction(
       return { error: "Transaction missing sender signature" };
     }
 
-    // Estimate gas if not provided in tx
-    let gas = tx.gas;
-    if (!gas) {
-      try {
-        const call = tx.calls[0];
-        const estimated = await publicClient.estimateGas({
-          account: senderAddress,
-          to: call.to as Address,
-          data: call.data as Hex,
-          value: 0n,
-        });
-        gas = (estimated * 120n) / 100n; // 20% buffer
-      } catch {
-        gas = 100_000n; // fallback
-      }
-    }
-
-    // Get fee estimates if not provided
-    let maxFeePerGas = tx.maxFeePerGas;
-    let maxPriorityFeePerGas = tx.maxPriorityFeePerGas;
-    if (!maxFeePerGas || !maxPriorityFeePerGas) {
-      try {
-        const fees = await publicClient.estimateFeesPerGas();
-        maxFeePerGas = maxFeePerGas ?? fees.maxFeePerGas;
-        maxPriorityFeePerGas = maxPriorityFeePerGas ?? fees.maxPriorityFeePerGas;
-      } catch {
-        maxFeePerGas = maxFeePerGas ?? 1_000_000_000n; // 1 gwei fallback
-        maxPriorityFeePerGas = maxPriorityFeePerGas ?? 1_000_000_000n;
-      }
-    }
-
-    logger.info(
-      {
-        originalTx: serializedTx,
-        parsed: {
-          from: senderAddress,
-          to: parsed.to,
-          token: parsed.token,
-          value: parsed.value?.toString(),
-          chainId: parsed.chainId,
-          gasLimit: parsed.gasLimit?.toString(),
-          maxFeePerGas: parsed.maxFeePerGas?.toString(),
-          maxPriorityFeePerGas: parsed.maxPriorityFeePerGas?.toString(),
-          validBefore: tx.validBefore,
-          validAfter: tx.validAfter,
-          hasSenderSignature: parsed.hasSenderSignature,
-        },
-        sponsorParams: {
-          gas: gas?.toString(),
-          maxFeePerGas: maxFeePerGas?.toString(),
-          maxPriorityFeePerGas: maxPriorityFeePerGas?.toString(),
-          feeToken: PATH_USD,
-        },
-      },
-      "Preparing sponsored transaction",
-    );
-
-    // Use ox's TxEnvelopeTempo directly, following the e2e test pattern exactly.
-    // 1. Deserialize with ox
-    const txEnvelope = TxEnvelopeTempo.deserialize(serializedTx as `0x76${string}`);
-
-    // 2. Create the fee payer transaction with feeToken added
-    const transaction_feePayer = TxEnvelopeTempo.from({
-      ...txEnvelope,
-      feeToken: PATH_USD,
+    const feePayerAccount = privateKeyToAccount(privateKey);
+    const signedTx = await signTransaction(client, {
+      ...tx,
+      account: feePayerAccount,
+      // @ts-expect-error tempo fee payer param
+      feePayer: feePayerAccount,
     });
-
-    // 3. Compute fee payer sign payload
-    const feePayerSignPayload = TxEnvelopeTempo.getFeePayerSignPayload(transaction_feePayer, {
-      sender: senderAddress,
-    });
-
-    // 4. Sign with fee payer's private key
-    const feePayerSignature = Secp256k1.sign({
-      payload: feePayerSignPayload,
-      privateKey,
-    });
-
-    // 5. Serialize with fee payer signature
-    const signedTx = TxEnvelopeTempo.serialize(transaction_feePayer, {
-      feePayerSignature,
-    });
-
-    logger.info({ signedTx }, "Submitting transaction to RPC");
 
     const hash = await client.request({
       method: "eth_sendRawTransaction",
@@ -217,29 +123,16 @@ export async function submitSponsoredTransaction(
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Unknown error";
 
-    let errorType: string;
-    let errorResult: { error: string };
-
     if (msg.includes("insufficient funds") || msg.includes("balance")) {
-      errorType = "insufficient_balance";
-      errorResult = { error: `Insufficient balance: ${msg}` };
-    } else if (msg.includes("nonce")) {
-      errorType = "nonce_error";
-      errorResult = { error: `Nonce error: ${msg}` };
-    } else if (msg.includes("signature") || msg.includes("invalid")) {
-      errorType = "signature_error";
-      errorResult = { error: `Signature error: ${msg}` };
-    } else {
-      errorType = "submission_error";
-      errorResult = { error: `Failed to submit transaction: ${msg}` };
+      return { error: `Insufficient balance: ${msg}` };
     }
-
-    logger.error(
-      { error: msg, errorType, chainId, txPrefix: serializedTx.slice(0, 66) },
-      "Failed to submit sponsored transaction",
-    );
-
-    return errorResult;
+    if (msg.includes("nonce")) {
+      return { error: `Nonce error: ${msg}` };
+    }
+    if (msg.includes("signature") || msg.includes("invalid")) {
+      return { error: `Signature error: ${msg}` };
+    }
+    return { error: `Failed to submit transaction: ${msg}` };
   }
 }
 
