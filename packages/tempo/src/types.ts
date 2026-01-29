@@ -11,8 +11,8 @@ export const TRANSFER_SELECTOR = "0xa9059cbb";
 export const FEE_PAYER_DOMAIN_BYTE = "0x78";
 
 export const DEFAULT_GAS_LIMIT_CAP = 120_000n;
-export const DEFAULT_MAX_FEE_PER_GAS_CAP = 2_000_000_000n;
-export const DEFAULT_MAX_PRIORITY_FEE_PER_GAS_CAP = 2_000_000_000n;
+export const DEFAULT_MAX_FEE_PER_GAS_CAP = 20_000_000_000n;
+export const DEFAULT_MAX_PRIORITY_FEE_PER_GAS_CAP = 20_000_000_000n;
 
 export interface TempoPaymentExtra {
   feePayer: string;

@@ -29,7 +29,11 @@ function verifyFail(reason: string, context?: Record<string, unknown>): VerifyRe
   return { isValid: false, invalidReason: reason };
 }
 
-function settleFail(reason: string, network: Network, context?: Record<string, unknown>): SettleResponse {
+function settleFail(
+  reason: string,
+  network: Network,
+  context?: Record<string, unknown>,
+): SettleResponse {
   logger.error({ reason, network, ...context }, "Settlement failed");
   return { success: false, errorReason: reason, transaction: "", network };
 }
@@ -77,7 +81,10 @@ export class ExactTempoScheme implements SchemeNetworkFacilitator, SchemeNetwork
     return [this.account.address];
   }
 
-  async verify(payload: PaymentPayload, requirements: PaymentRequirements): Promise<VerifyResponse> {
+  async verify(
+    payload: PaymentPayload,
+    requirements: PaymentRequirements,
+  ): Promise<VerifyResponse> {
     const txPayload = payload.payload as {
       serializedTransaction?: string;
       transaction?: string;
@@ -121,6 +128,9 @@ export class ExactTempoScheme implements SchemeNetworkFacilitator, SchemeNetwork
       return verifyFail("Transaction recipient does not match payTo");
     }
 
+    console.log("requirements", requirements);
+    console.log("parsed", parsed);
+
     // 7. Amount check
     const requiredAmount = BigInt(requirements.amount);
     if (parsed.value! < requiredAmount) {
@@ -158,8 +168,12 @@ export class ExactTempoScheme implements SchemeNetworkFacilitator, SchemeNetwork
     // 10. Fee safety caps
     const extra = requirements.extra as unknown as TempoPaymentExtra | undefined;
     const gasLimitCap = extra?.gasLimitMax ? BigInt(extra.gasLimitMax) : DEFAULT_GAS_LIMIT_CAP;
-    const maxFeeCap = extra?.maxFeePerGasMax ? BigInt(extra.maxFeePerGasMax) : DEFAULT_MAX_FEE_PER_GAS_CAP;
-    const maxPriorityCap = extra?.maxPriorityFeePerGasMax ? BigInt(extra.maxPriorityFeePerGasMax) : DEFAULT_MAX_PRIORITY_FEE_PER_GAS_CAP;
+    const maxFeeCap = extra?.maxFeePerGasMax
+      ? BigInt(extra.maxFeePerGasMax)
+      : DEFAULT_MAX_FEE_PER_GAS_CAP;
+    const maxPriorityCap = extra?.maxPriorityFeePerGasMax
+      ? BigInt(extra.maxPriorityFeePerGasMax)
+      : DEFAULT_MAX_PRIORITY_FEE_PER_GAS_CAP;
 
     if (parsed.gasLimit && parsed.gasLimit > gasLimitCap) {
       return verifyFail(`gas_limit ${parsed.gasLimit} exceeds cap ${gasLimitCap}`);
@@ -168,7 +182,9 @@ export class ExactTempoScheme implements SchemeNetworkFacilitator, SchemeNetwork
       return verifyFail(`max_fee_per_gas ${parsed.maxFeePerGas} exceeds cap ${maxFeeCap}`);
     }
     if (parsed.maxPriorityFeePerGas && parsed.maxPriorityFeePerGas > maxPriorityCap) {
-      return verifyFail(`max_priority_fee_per_gas ${parsed.maxPriorityFeePerGas} exceeds cap ${maxPriorityCap}`);
+      return verifyFail(
+        `max_priority_fee_per_gas ${parsed.maxPriorityFeePerGas} exceeds cap ${maxPriorityCap}`,
+      );
     }
 
     // 11. Sender signature
@@ -190,7 +206,10 @@ export class ExactTempoScheme implements SchemeNetworkFacilitator, SchemeNetwork
     return { isValid: true, payer };
   }
 
-  async settle(payload: PaymentPayload, requirements: PaymentRequirements): Promise<SettleResponse> {
+  async settle(
+    payload: PaymentPayload,
+    requirements: PaymentRequirements,
+  ): Promise<SettleResponse> {
     logger.info({ network: this.networkId, amount: requirements.amount }, "Starting settlement");
 
     // Re-verify before settling
@@ -223,7 +242,10 @@ export class ExactTempoScheme implements SchemeNetworkFacilitator, SchemeNetwork
       });
     }
 
-    logger.info({ hash: result.hash, network: this.networkId }, "Transaction submitted, waiting for confirmation");
+    logger.info(
+      { hash: result.hash, network: this.networkId },
+      "Transaction submitted, waiting for confirmation",
+    );
 
     // Wait for confirmation
     try {
@@ -234,7 +256,7 @@ export class ExactTempoScheme implements SchemeNetworkFacilitator, SchemeNetwork
       if (receipt.status === "reverted") {
         logger.error(
           { hash: result.hash, network: this.networkId },
-          "Transaction reverted on-chain"
+          "Transaction reverted on-chain",
         );
         return {
           success: false,
@@ -246,14 +268,14 @@ export class ExactTempoScheme implements SchemeNetworkFacilitator, SchemeNetwork
     } catch (error) {
       logger.warn(
         { hash: result.hash, error: error instanceof Error ? error.message : "Unknown error" },
-        "Timeout waiting for confirmation - transaction may still succeed"
+        "Timeout waiting for confirmation - transaction may still succeed",
       );
     }
 
     const payer = verifyResult.payer || txPayload.transfer?.from || "";
     logger.info(
       { hash: result.hash, network: this.networkId, payer },
-      "Settlement completed successfully"
+      "Settlement completed successfully",
     );
     return {
       success: true,
@@ -270,7 +292,8 @@ export class ExactTempoScheme implements SchemeNetworkFacilitator, SchemeNetwork
       return price;
     }
 
-    const numericAmount = typeof price === "string" ? parseFloat(price.replace(/[^0-9.]/g, "")) : price;
+    const numericAmount =
+      typeof price === "string" ? parseFloat(price.replace(/[^0-9.]/g, "")) : price;
     const amountInSmallestUnit = Math.round(numericAmount * 1_000_000);
 
     return {
@@ -281,7 +304,12 @@ export class ExactTempoScheme implements SchemeNetworkFacilitator, SchemeNetwork
 
   async enhancePaymentRequirements(
     paymentRequirements: PaymentRequirements,
-    supportedKind: { x402Version: number; scheme: string; network: Network; extra?: Record<string, unknown> },
+    supportedKind: {
+      x402Version: number;
+      scheme: string;
+      network: Network;
+      extra?: Record<string, unknown>;
+    },
     _facilitatorExtensions: string[],
   ): Promise<PaymentRequirements> {
     return {
@@ -293,7 +321,7 @@ export class ExactTempoScheme implements SchemeNetworkFacilitator, SchemeNetwork
         gasLimitMax: String(DEFAULT_GAS_LIMIT_CAP),
         maxFeePerGasMax: String(DEFAULT_MAX_FEE_PER_GAS_CAP),
         maxPriorityFeePerGasMax: String(DEFAULT_MAX_PRIORITY_FEE_PER_GAS_CAP),
-        ...(supportedKind.extra || {}),
+        ...supportedKind.extra,
       },
     };
   }

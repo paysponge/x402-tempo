@@ -4,6 +4,7 @@ import { Transaction } from "viem/tempo";
 import { signTransaction } from "viem/actions";
 import type { Address, Hex, ParsedTempoTransaction } from "./types";
 import { TRANSFER_SELECTOR, TEMPO_TX_TYPE_BYTE } from "./types";
+import { tempoModerato } from "viem/chains";
 
 export function parseTempoTransaction(serializedTx: string): ParsedTempoTransaction {
   try {
@@ -62,13 +63,19 @@ export function parseTempoTransaction(serializedTx: string): ParsedTempoTransact
       validBefore: tx.validBefore,
       validAfter: tx.validAfter,
       chainId: tx.chainId,
-      gasLimit: tx.gas != null ? BigInt(tx.gas) : undefined,
-      maxFeePerGas: tx.maxFeePerGas != null ? BigInt(tx.maxFeePerGas) : undefined,
+      gasLimit: tx.gas === undefined || tx.gas === null ? undefined : BigInt(tx.gas),
+      maxFeePerGas:
+        tx.maxFeePerGas === undefined || tx.maxFeePerGas === null
+          ? undefined
+          : BigInt(tx.maxFeePerGas),
       maxPriorityFeePerGas:
-        tx.maxPriorityFeePerGas != null ? BigInt(tx.maxPriorityFeePerGas) : undefined,
+        tx.maxPriorityFeePerGas === undefined || tx.maxPriorityFeePerGas === null
+          ? undefined
+          : BigInt(tx.maxPriorityFeePerGas),
       hasSenderSignature,
     };
   } catch (error) {
+    console.log("verification " + error);
     return {
       valid: false,
       error: `Failed to parse transaction: ${error instanceof Error ? error.message : "Unknown error"}`,
@@ -98,6 +105,7 @@ export async function submitSponsoredTransaction(
 
     const client = createClient({
       transport: http(rpcUrl),
+      chain: tempoModerato,
     });
 
     const tx = Transaction.deserialize(serializedTx as `0x76${string}`);
@@ -110,7 +118,6 @@ export async function submitSponsoredTransaction(
     const signedTx = await signTransaction(client, {
       ...tx,
       account: feePayerAccount,
-      // @ts-expect-error tempo fee payer param
       feePayer: feePayerAccount,
     });
 
@@ -134,10 +141,4 @@ export async function submitSponsoredTransaction(
     }
     return { error: `Failed to submit transaction: ${msg}` };
   }
-}
-
-export function encodeTransferCall(to: Address, value: bigint): Hex {
-  const toHex = to.slice(2).toLowerCase().padStart(64, "0");
-  const valueHex = value.toString(16).padStart(64, "0");
-  return `${TRANSFER_SELECTOR}${toHex}${valueHex}` as Hex;
 }

@@ -3,8 +3,15 @@ export { ExactTempoClientScheme } from "./client";
 export type { TempoSignerConfig, TempoTransactionRequest } from "./client";
 export type { ExactTempoSchemeConfig } from "./types";
 
-export { parseTempoTransaction, submitSponsoredTransaction, encodeTransferCall } from "./transaction";
-export { TokenRegistry, TIP20_ABI, KNOWN_TOKENS, DEFAULT_PATHUSD, parseTokenAmount, formatTokenAmount } from "./tokens";
+export { parseTempoTransaction, submitSponsoredTransaction } from "./transaction";
+export {
+  TokenRegistry,
+  TIP20_ABI,
+  KNOWN_TOKENS,
+  DEFAULT_PATHUSD,
+  parseTokenAmount,
+  formatTokenAmount,
+} from "./tokens";
 
 export {
   TEMPO_TESTNET_CHAIN_ID,

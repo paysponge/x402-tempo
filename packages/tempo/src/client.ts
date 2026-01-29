@@ -1,10 +1,13 @@
-import type {
-  SchemeNetworkClient,
-  PaymentRequirements,
-  PaymentPayload,
-} from "@x402/core/types";
-import type { Address, Hex, TempoPaymentExtra } from "./types";
-import { encodeTransferCall } from "./transaction";
+import type { SchemeNetworkClient, PaymentRequirements, PaymentPayload } from "@x402/core/types";
+import type { Address, Hex } from "./types";
+import { encodeFunctionData } from "viem";
+import { Abis } from "viem/tempo";
+import type { TempoPaymentExtra } from "./types";
+import {
+  DEFAULT_GAS_LIMIT_CAP,
+  DEFAULT_MAX_FEE_PER_GAS_CAP,
+  DEFAULT_MAX_PRIORITY_FEE_PER_GAS_CAP,
+} from "./types";
 
 export interface TempoSignerConfig {
   signTempoTransaction: (tx: TempoTransactionRequest) => Promise<string>;
@@ -18,8 +21,11 @@ export interface TempoTransactionRequest {
     data: Hex;
     value: bigint;
   }>;
-  validBefore: number;
-  validAfter: number;
+  gas?: bigint;
+  maxFeePerGas?: bigint;
+  maxPriorityFeePerGas?: bigint;
+  validBefore?: number;
+  validAfter?: number;
 }
 
 export class ExactTempoClientScheme implements SchemeNetworkClient {
@@ -38,14 +44,24 @@ export class ExactTempoClientScheme implements SchemeNetworkClient {
     const chainId = parseInt(paymentRequirements.network.split(":")[1], 10);
 
     const now = Math.floor(Date.now() / 1000);
-    const maxTimeout = paymentRequirements.maxTimeoutSeconds || 300;
-    const validBefore = now + maxTimeout;
-    const validAfter = 0;
+    const maxTimeout = paymentRequirements.maxTimeoutSeconds ?? 300;
+    const validBefore = maxTimeout > 0 ? now + maxTimeout : undefined;
+    const validAfter = undefined;
 
-    const callData = encodeTransferCall(
-      paymentRequirements.payTo as Address,
-      BigInt(paymentRequirements.amount),
-    );
+    const callData = encodeFunctionData({
+      abi: Abis.tip20,
+      functionName: "transfer",
+      args: [paymentRequirements.payTo as Address, BigInt(paymentRequirements.amount)],
+    }) as Hex;
+
+    const extra = paymentRequirements.extra as unknown as TempoPaymentExtra | undefined;
+    const gas = extra?.gasLimitMax ? BigInt(extra.gasLimitMax) : DEFAULT_GAS_LIMIT_CAP;
+    const maxFeePerGas = extra?.maxFeePerGasMax
+      ? BigInt(extra.maxFeePerGasMax)
+      : DEFAULT_MAX_FEE_PER_GAS_CAP;
+    const maxPriorityFeePerGas = extra?.maxPriorityFeePerGasMax
+      ? BigInt(extra.maxPriorityFeePerGasMax)
+      : DEFAULT_MAX_PRIORITY_FEE_PER_GAS_CAP;
 
     const txRequest: TempoTransactionRequest = {
       chainId,
@@ -56,6 +72,9 @@ export class ExactTempoClientScheme implements SchemeNetworkClient {
           value: 0n,
         },
       ],
+      gas,
+      maxFeePerGas,
+      maxPriorityFeePerGas,
       validBefore,
       validAfter,
     };
